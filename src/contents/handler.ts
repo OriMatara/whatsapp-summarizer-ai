@@ -4,7 +4,7 @@ export const config: PlasmoCSConfig = {
   matches: ["https://web.whatsapp.com/*"]
 }
 
-console.log('--- [DEBUG] WhatsApp Summarizer: Emoji-Proof Logic Active ---');
+console.log('--- [DEBUG] WhatsApp Summarizer: Diagnostic Mode Active ---');
 
 // מבנה הנתונים שלנו
 const unreadRegistry: Record<string, number> = {};
@@ -47,13 +47,16 @@ observer.observe(document.body, { childList: true, subtree: true });
 
 // --- 2. עיבוד הודעה ---
 function processMessageElement(msgElement: HTMLElement, messages: any[], currentContact: string, index: number) {
-  const textEl = msgElement.querySelector('.copyable-text, .selectable-text, [data-lexical-text="true"], span.x1lliihq');
+  const textEl = msgElement.querySelector('.copyable-text, .selectable-text, [data-lexical-text="true"]');
   if (!textEl) return;
 
   let messageText = textEl.textContent?.trim() || "";
   messageText = messageText.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
 
-  // מחיקת שעה שנדבקת לסוף
+  // ניקוי ה-tail
+  messageText = messageText.replace(/^(tail-out|tail-in|tail)/i, '').trim();
+
+  // מחיקת שעה
   messageText = messageText.replace(/\d{1,2}:\d{2}(\s?[AP]M)?$/i, '').trim();
 
   if (!messageText || /^\d{1,2}:\d{2}$/.test(messageText)) return;
@@ -83,43 +86,46 @@ function getUnreadMessages() {
     const headerTitleEl = main.querySelector('header span[title], header div[role="button"] span');
     let rawHeaderTitle = headerTitleEl?.getAttribute('title') || headerTitleEl?.textContent || "";
     
-    // ניקוי שם הכותרת לצורך הצלבה
     const headerKey = getMatchKey(rawHeaderTitle);
-    console.log(`[Diagnostic] Active Chat Key: "${headerKey}" (Raw: "${rawHeaderTitle}")`);
+    console.log(`[LOG 1] Active Chat Key: "${headerKey}" (Raw: "${rawHeaderTitle}")`);
 
     const container = (main.querySelector('div[style*="overflow-y: scroll"]') || 
                       main.querySelector('.copyable-area > div:last-child')) as HTMLElement;
 
     const messages: any[] = [];
     const allBubbles = Array.from(container.querySelectorAll('[data-id]'));
+    console.log(`[LOG 2] Total bubbles found in container: ${allBubbles.length}`);
 
-    // בדיקה ב-Registry לפי המפתח הנקי
     const registryCount = unreadRegistry[headerKey] || 0;
-    console.log(`[Diagnostic] Registry match for "${headerKey}": Found ${registryCount}`);
+    console.log(`[LOG 3] Registry count for this chat: ${registryCount}`);
 
     // חיפוש מפריד
     let separator: HTMLElement | null = null;
     const allSpans = container.querySelectorAll('span, div');
+    
+    // לוג לבדיקה מה הקוד רואה במפרידים
     for (const el of Array.from(allSpans)) {
       const t = el.textContent?.trim();
       if (t === "הודעות שלא נקראו" || t === "Unread messages") {
         separator = el as HTMLElement;
+        console.log(`[LOG 4] Found separator element with text: "${t}"`);
         break;
       }
     }
 
     if (separator) {
-      console.log(`[Diagnostic] Found Separator. Slicing...`);
+      console.log(`[LOG 5] Entering Route A: Separator Found`);
       const unreadBubbles = allBubbles.filter(b => separator!.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+      console.log(`[LOG 5a] Bubbles following separator: ${unreadBubbles.length}`);
       unreadBubbles.forEach((b, i) => processMessageElement(b as HTMLElement, messages, rawHeaderTitle, i));
     } 
     else if (registryCount > 0) {
-      console.log(`[Diagnostic] Using Registry Count: ${registryCount}`);
+      console.log(`[LOG 6] Entering Route B: Registry Count Found (${registryCount})`);
       allBubbles.slice(-registryCount).forEach((b, i) => processMessageElement(b as HTMLElement, messages, rawHeaderTitle, i));
-      unreadRegistry[headerKey] = 0; // איפוס
+      unreadRegistry[headerKey] = 0;
     } 
     else {
-      console.log(`[Diagnostic] Fallback to last 10 messages`);
+      console.log(`[LOG 7] Entering Route C: Fallback (No separator, No registry). Slicing 10.`);
       allBubbles.slice(-10).forEach((b, i) => processMessageElement(b as HTMLElement, messages, rawHeaderTitle, i));
     }
 
@@ -133,6 +139,7 @@ function getUnreadMessages() {
   } catch (e: any) {
     result.success = false;
     result.error = e.message;
+    console.error(`[LOG ERROR] ${e.message}`);
   }
   return result;
 }
